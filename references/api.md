@@ -4,7 +4,7 @@
 
 ```
 POST https://fast.ns.tisoz.com/v1/images/generations
-Authorization: Bearer <FASTITOKEN_IMAGE_KEY>
+Authorization: Bearer <GENIMG_API_KEY>
 Content-Type: application/json
 
 {"model":"gpt-image-2","prompt":"...","size":"1024x1024","quality":"low","n":1,"output_format":"png"}
@@ -16,11 +16,13 @@ Content-Type: application/json
 `HTTP 403 / error code: 1010`，请求根本没到鉴权。`curl` 和自定义 UA 实测可以通过。
 输出的 PNG 实测就是请求的 1024x1024，无隐式放大。
 
-## API key 的来源
+## API key 的来源（实测于 2026-10-28）
 
-- 稳定路径：skill 目录下的 `.env`（已实测多次）。
-- 环境变量 `FASTITOKEN_IMAGE_KEY` 在本机 pwsh → Git Bash → python 这条链路里注入时灵时不灵，
-  **不要依赖它做临时覆盖 key**，要换 key 直接改 `.env`。
+- 稳定路径：skill 目录下的 `.env`，变量名 `GENIMG_API_KEY`（脚本同时接受旧名 `FASTITOKEN_IMAGE_KEY`）。
+- 命令行临时覆盖：`GENIMG_API_KEY=sk-xxx python ...` 实测可用（覆盖后 `KEY_LEN` 会变）。
+- **`FASTITOKEN*` 开头的变量传不进子进程**：bash 里 `printenv` 有值，python 的 `os.environ` 里是 `None`；
+  与用 pwsh 还是 Git Bash 无关，换成 `GENIMG_API_KEY` 这类名字就正常。过滤规则未知，别依赖这个名字。
+- 排查用 `--check`：只校验 key 和参数并打印来源、长度，不请求接口，不花钱。
 
 ## 响应（实测）
 

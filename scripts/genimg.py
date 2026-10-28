@@ -40,16 +40,32 @@ EXIT_USAGE = 2
 EXIT_HTTP = 3
 EXIT_NETWORK = 4
 
+# Windows 控制台默认 cp936，中文诊断信息会被上层当成二进制。固定按 UTF-8 输出。
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except (ValueError, OSError):
+            pass
+
 
 def eprint(msg):
     print(msg, file=sys.stderr)
 
 
+ENV_NAMES = ("GENIMG_API_KEY", "FASTITOKEN_IMAGE_KEY")
+
+
 def load_key(skill_dir):
-    """环境变量优先，其次 skill 目录下的 .env。返回 (key, 来源说明)。"""
-    env_key = os.environ.get("FASTITOKEN_IMAGE_KEY", "").strip()
-    if env_key:
-        return env_key, "环境变量 FASTAITOKEN_IMAGE_KEY"
+    """环境变量优先，其次 skill 目录下的 .env。返回 (key, 来源说明)。
+
+    注意：实测 FASTAITOKEN_IMAGE_KEY 这个名字会被本机 shell 链路从子进程环境里剥掉，
+    命令行临时覆盖要用 GENIMG_API_KEY。详见 references/api.md。
+    """
+    for name in ENV_NAMES:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value, "环境变量 " + name
 
     env_file = skill_dir / ".env"
     if env_file.exists():
@@ -58,7 +74,7 @@ def load_key(skill_dir):
             if not line or line.startswith("#") or "=" not in line:
                 continue
             name, value = line.split("=", 1)
-            if name.strip() == "FASTITOKEN_IMAGE_KEY":
+            if name.strip() in ENV_NAMES:
                 value = value.strip().strip('"').strip("'")
                 if value:
                     return value, str(env_file)
@@ -140,13 +156,17 @@ def main():
         "--force-large", action="store_true",
         help="确认接受超过 1024 的尺寸（计费档位会从 $0.10 升到 $0.15）",
     )
+    parser.add_argument(
+        "--check", action="store_true",
+        help="只检查 key 和参数是否可用，不请求接口（不花钱）",
+    )
     args = parser.parse_args()
 
     skill_dir = Path(__file__).resolve().parent.parent
     key, key_source = load_key(skill_dir)
     if not key:
-        eprint("[genimg] 未找到 API key：设置环境变量 FASTAITOKEN_IMAGE_KEY，"
-               "或在 %s 写 FASTAITOKEN_IMAGE_KEY=..." % (skill_dir / ".env"))
+        eprint("[genimg] 未找到 API key：在 %s 写 GENIMG_API_KEY=...（或 FASTAITOKEN_IMAGE_KEY=...）"
+               % (skill_dir / ".env"))
         sys.exit(EXIT_USAGE)
 
     size = parse_size(args.size)
@@ -158,6 +178,13 @@ def main():
     if args.n < 1:
         eprint("[genimg] --n 至少为 1")
         sys.exit(EXIT_USAGE)
+
+    if args.check:
+        print("KEY_SOURCE=%s" % key_source)
+        print("KEY_LEN=%d" % len(key))
+        print("SIZE=%s QUALITY=%s" % (size, args.quality))
+        eprint("[genimg] 配置检查通过，未请求接口")
+        return EXIT_OK
 
     body = {
         "model": "gpt-image-2",

@@ -15,8 +15,9 @@ python /c/Users/qrww-无界15xa-/.config/opencode/skills/genimg/scripts/genimg.p
 ```
 
 - 只走这一个脚本，不要自己拼 curl。契约与实测细节见 `references/api.md`。
-- key 由脚本从 skill 目录 `.env` 读取，**任何时候不要把 key 打印出来或写进回复**。换 key 直接改 `.env`，
-  不要用环境变量注入——本机 shell 链路里环境变量注入不可靠（见 `references/api.md`）。
+- key 由脚本从 skill 目录 `.env` 读取，**任何时候不要把 key 打印出来或写进回复**。换 key 直接改 `.env`；
+  要临时覆盖用 `GENIMG_API_KEY=... python ...`，**不要用 `FASTITOKEN_IMAGE_KEY=`**——这个名字会被本机
+  shell 链路从子进程环境里剥掉（实测，见 `references/api.md`）。
 - 输出默认 `C:\Files\Pictures\genimg\`，同时写同名 `.meta.json`（请求参数、响应、耗时）。
 - 脚本最后一行 `LOCAL=<路径>` 就是成品，用 `read` 打开它看效果。
 
@@ -36,6 +37,14 @@ python /c/Users/qrww-无界15xa-/.config/opencode/skills/genimg/scripts/genimg.p
 - 默认不出超过 1024 的尺寸。要出大图必须显式加 `--force-large`，且先跟用户确认。
 - 脚本不自动重试。退出码非 0 时把状态码和错误体原样转给用户，不要擅自重试——重试就是再扣一次钱。
 - 一次 `--n 1`。需要多张备选时先说明数量和费用，用户同意再调大 `--n`。
+
+## 排查
+
+不花钱的自检（校验 key 与参数，不请求接口）：
+
+```bash
+python /c/Users/qrww-无界15xa-/.config/opencode/skills/genimg/scripts/genimg.py --prompt x --check
+```
 
 ## 退出码
 
