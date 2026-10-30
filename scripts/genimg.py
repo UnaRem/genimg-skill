@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""文生图：默认走 fastaitoken 网关的 gpt-image-2；--backend local 走本机 Strata。落盘到本地。
+"""文生图：默认走本机 Strata 的 Qwen-Image-2.1-Turbo；--backend gateway 走 fastaitoken 网关的 gpt-image-2。落盘到本地。
 
 仅用 Python 3.9 标准库。契约见同 skill 的 references/api.md。
 
@@ -43,6 +43,11 @@ LOCAL_SIZE_MIN = 256
 LOCAL_SIZE_MAX = 2048
 LOCAL_SIZE_STEP = 32
 LOCAL_N_MAX = 4
+
+# 默认走本机 Strata；只有明确要 gpt-image-2 时才用网关（.env 的 GENIMG_BACKEND 可改默认值）
+DEFAULT_BACKEND = "local"
+BACKEND_NAMES = ("GENIMG_BACKEND",)
+BACKEND_CHOICES = ("gateway", "local")
 
 EXIT_OK = 0
 EXIT_NO_IMAGE = 1
@@ -223,7 +228,7 @@ def warn_local_cost():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="生成图片并保存到本地（默认 fastaitoken gpt-image-2，--backend local 走本机 Strata）",
+        description="生成图片并保存到本地（默认本机 Strata 的 Qwen-Image-2.1-Turbo，--backend gateway 走 fastaitoken 的 gpt-image-2）",
     )
     parser.add_argument("--prompt", required=True, help="图片描述（建议英文为主）")
     parser.add_argument("--size", default=DEFAULT_SIZE, help="宽x高，默认 1024x1024")
@@ -237,8 +242,9 @@ def main():
         help="随机种子，仅本机后端可用：同 prompt + 同 seed → PNG 逐字节相同",
     )
     parser.add_argument(
-        "--backend", choices=("gateway", "local"), default="gateway",
-        help="gateway=fastaitoken 网关（默认，按次计费）；local=本机 Strata（不花钱，独占 GPU）",
+        "--backend", choices=BACKEND_CHOICES, default=None,
+        help="local=本机 Strata（默认，不花钱，独占 GPU）；gateway=fastaitoken 网关的 gpt-image-2（按次计费）。"
+             "默认值也可由 .env 的 GENIMG_BACKEND 改",
     )
     parser.add_argument("--slug", default="", help="文件名后缀，默认取 prompt 前若干字符")
     parser.add_argument("--out", default=str(DEFAULT_OUT_DIR), help="输出目录")
@@ -254,6 +260,20 @@ def main():
 
     skill_dir = Path(__file__).resolve().parent.parent
     env_map = read_env_file(skill_dir)
+
+    # 后端：命令行 > .env 的 GENIMG_BACKEND > 默认本机
+    if args.backend is None:
+        env_backend, backend_source = lookup_setting(BACKEND_NAMES, env_map)
+        env_backend = (env_backend or "").strip().lower()
+        if env_backend and env_backend not in BACKEND_CHOICES:
+            eprint("[genimg] GENIMG_BACKEND 只认 %s，收到 %r"
+                   % (" / ".join(BACKEND_CHOICES), env_backend))
+            sys.exit(EXIT_USAGE)
+        args.backend = env_backend or DEFAULT_BACKEND
+        backend_source = backend_source or "默认"
+        eprint("[genimg] 后端：%s（来自 %s；要 gpt-image-2 加 --backend gateway）"
+               % ("本机 Strata" if args.backend == "local" else "fastaitoken 网关 gpt-image-2",
+                  backend_source))
 
     if args.backend == "local":
         key, key_source = lookup_setting(LOCAL_KEY_NAMES, env_map)
