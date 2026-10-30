@@ -1,3 +1,6 @@
 .env
 __pycache__/
 *.pyc
+
+# 一次性交接文件，本地留存
+HANDOFF-*.md
