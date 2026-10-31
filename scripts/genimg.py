@@ -219,11 +219,13 @@ def download(url, dest, billed_note):
 
 
 def warn_local_cost():
-    """本机后端的真实代价：不是钱，是独占 GPU 和会话被打断（实测见 SKILL.md）。"""
+    """本机后端的真实代价：不是钱，是独占 GPU 和会话被打断（实测见 SKILL.md / references/api.md）。"""
     eprint("[genimg] 本机后端：这一张会独占单生成令牌 FIFO，期间所有 chat 排队（实测等了 107.2 s）。")
-    eprint("[genimg] gpu_policy=unload 会卸掉引擎（会话 KV 必丢）→ 下一个请求多付实测 66 s 重载"
-           " + 按上下文长度的重读（44.4k tokens 21 s）。一次 2048² 生图的完整打断 ≈232 s。")
-    eprint("[genimg] 要出多张请这次一次出完（--n 到 %d），重载只付一次。" % LOCAL_N_MAX)
+    eprint("[genimg] gpu_policy=unload 会卸掉引擎（会话 KV 必丢）→ 本轮之后的第一个请求多付实测 60–66 s 重载"
+           " + 按上下文长度的重读（≈2.1k tok/s：44.4k tokens 21 s，200K 上下文 ~61 s）。"
+           "一次 1024² 的完整打断 ≈115 s、2048² ≈232 s。")
+    eprint("[genimg] 一轮只付一次重载：要几张就连着发完，中间别穿插 chat / 工具调用"
+           "（穿插一次 = 多付一轮，实测 80–120 s）。同 prompt 的候选用 --n（到 %d）。" % LOCAL_N_MAX)
 
 
 def main():
