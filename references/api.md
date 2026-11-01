@@ -390,6 +390,123 @@ eight pixel rhythm … dense in data but spacious in padding`——**风格名�
 ui-{style-arms,style-detail,style-pairs}.png`，脚本 `C:\Files\Codes\unaserver\scripts\s16_ui_arms.py --style`，
 数据与已试过判定不用：`C:\Files\Codes\unaserver\2026-10-30-能力边界.md` §3e。
 
+## 营销站 / 落地页与资源图就照这个写法（实测 2026-11-01 13:36–14:03，八臂，同一份文案只差写法）
+
+**上面那套「按区域走帧 + 每区就地给文案」迁到营销站就成立，不需要新技巧。**
+一整屏落地页（nav / 两栏 hero / 三特性 / 五个客户名 / 底部滚动提示）**逐字全中**。
+完整 prompt 在 `C:\Files\Codes\unaserver\scripts\s17_landing_arms.py`（`--emit l1|q|l2|l3|l4|l5i|l5t|l5h`）。
+
+**骨架（L1，实测逐字命中，2048×1152）**：
+
+```text
+The image is a wide flat screenshot of a website landing page for <产品类别> called <品牌>，shown edge to
+edge with no browser chrome, no mockup frame, no device around it. The page is an editorial, asymmetric
+composition on a warm cream background with ink black type, one vermilion accent, generous empty space,
+and photography as the visual lead.
+Along the top of the frame a slim navigation bar: the wordmark <品牌> at the left in medium black type,
+four navigation links to its right reading "概览" "价格" "文档" "更新", and a small outlined button at the
+far right reading "免费试用".
+In the upper 60 percent of the frame, a two column hero. On the left, an eyebrow label in small grey
+capitals reading "本地优先 · 不上传", a very large display headline set in two lines: the first line
+"把读过的东西" and the second line "留在自己的机器上", a short paragraph under it reading "……",
+a filled primary button reading "免费试用" and a plain text link reading "看它怎么工作".
+On the right half of the hero, a full bleed photograph that runs to the right edge of the frame:
+<一段照片描述>.
+Below the hero, a thin hairline rule, then three feature blocks in a row, each with a small line icon,
+a title and one line of copy: "全文检索" with "毫秒级，离线也能用"; "双向链接" with "……"; "随时导出" with "……".
+Under the features, a quiet row of five grey text-only client wordmarks reading <五个真实名字>, set small
+and evenly spaced.
+At the very bottom edge, a small grey hint with a downward chevron reading 向下滚动看价格.
+The headline is the largest element on the page by a wide margin; every other text size steps down clearly
+from it. Panels are flat with no borders and no drop shadows; the only saturated colour in the whole page
+is the vermilion used for the primary button and one rule under the eyebrow label.
+```
+
+三条实测到的写法细节：
+
+- **要两行标题就分行写**（`set in two lines: the first line "…" and the second line "…"`）。
+  只写 `a very large headline` 会连成一行。
+- **每个组件都要带文案**，包括客户名行和底部提示——给全了就全中（本轮这臂零错字）。
+- **prompt 长度不是墙**：这臂 1,975 字符，写满 tokens 那臂 2,383 字符，结构都没丢。
+
+### 动线：把两个状态画在同一张图里（L2，1,397 字符，✓ 逐项对）
+
+```text
+The image is a wide flat interaction design sheet for the hero of a website called <品牌>, on a warm cream
+background. The sheet shows the same hero block twice, side by side at identical size, with a thin
+horizontal arrow drawn between them pointing right, so the two states read as one scroll interaction.
+Left half — state one, before scrolling: … a large display headline in one line reading "把读过的东西",
+a filled vermilion button reading "免费试用", and to the right a closed dark panel with no content visible.
+Right half — state two, after scrolling: the same hero block, identical position and size, but the headline
+has grown to two lines reading … and …, the dark panel has opened into a document list showing four rows of
+grey text lines, the eyebrow label is gone, and a mouse cursor arrow is drawn resting on the "免费试用"
+button, which is now slightly darker with a small ring around it.
+Above both halves, a small grey caption over the left one reading 状态一 未滚动 and over the right one
+reading 状态二 已滚动. Below the arrow, one line of small grey type reading 标题展开 · 面板打开 · 标签淡出.
+```
+
+两半的差异、两个状态标签、底部那行说明**全部逐字对** → **静态图能表达滚动/hover**。
+唯一不稳：两半不是严格同一网格（左半按钮偏高），要精确对齐就多试一臂。
+
+### 要看细节就一节一图（L4 定价节，1,465 字符，1536×1024，70 s，**全部逐字命中**）
+
+单节比整屏便宜 40 s，文字密度高得多：三档面板的价格、副标、14 条列表行、四个按钮、
+FAQ 四个问句全部对。骨架是「eyebrow + 两行大标题 + 说明 → 三档（中间档更高 + 顶部强调色 +
+`最受欢迎` 标签）→ 常见问题 + 四条带 `+` 的 FAQ」，**每档的列表行逐条用引号给出**。
+**要细节就重画那一节，不要裁上一张**（裁掉的块本身不可判）。
+
+### 资源图（各发一条作业，1024² 一条 28–29 s）
+
+```text
+# 可平铺背景 ✓（脚本 seam_probe：边界接缝 MAD 2.60 vs 相邻列 2.40 = 1.1× → 平铺不露缝）
+A seamless tileable abstract background pattern filling the whole frame on a warm cream field: thin
+off-white and pale grey ink-brush strokes like paper fibres and faint ruled guide lines, with two small
+soft vermilion marks, evenly balanced so no area is darker than another, no focal point, no text
+anywhere, no frame, flat and even lighting, designed to be used as a website background.
+
+# 主视觉照片 ✓ 可直接当 hero（这条推翻了「真实摄影做不到」；产品渲染仍不行）
+A wide photographic still life for a website hero image, warm and quiet: a wooden desk beside a window
+with soft morning daylight, an open paper notebook with handwritten Chinese characters, a fountain pen
+resting on the page, a small stack of printed pages and a ceramic cup, shot from above at a slight three
+quarter angle, shallow depth of field, natural film-like grain, muted warm palette with one small
+vermilion object as the only strong colour, no text overlays, no watermarks, no visible brand names.
+
+# 图标网格 ◐ 只当风格参考（语义与标签不可靠：12 条里 9 条语义错位、4 条错字）
+A flat icon sheet on a plain warm cream background: a grid of twelve icons …, all drawn with the same
+1.5 pixel ink black stroke, the same rounded joins, the same 24 pixel box and the same corner radius,
+no fills, no shadows, no gradients. Each icon has one small grey Chinese label beneath it, reading in
+order: 搜索, 收藏, …
+```
+
+**图标结论**：统一描边/圆角/网格 ✓，但**语义会漂**（`收藏`→齿轮、`分享`→气球）、**短标签会错字**
+（`链接`→链锉、`日历`→日方、`下载`→下业、`归档`→归榕），指定的 `four rows and three columns` 出成 3 行 4 列。
+**做 icon 用现成图标库，生图只用来定风格。**
+
+### tokens 写进每个区域 = 方向成立、数值不精确（L3）
+
+把 hex / `radius 20 pixels` / `0 12px 32px rgba(…)` / 字号阶梯**写进每一段的描述里**（不是加一段全局风格句）
+→ 卡片化、圆角、阴影、强调色出现的位置都按指定来，与不写的版本明显不同。
+**但只被近似**：指定 `#D7432B` 出来 `#b61700`（RGB 距离 70）；`132px/24/18/14` 只落成相对大小。
+**所以颜色与字号最后要从图上取，不要照抄 prompt。** 脚本里的 `accent_probe()` 就是干这个的。
+
+### 不要贴「对标 Awwwards / FWA / CSSDA」那段全局质量段（Q 臂，实测判掉）
+
+与不贴相比（L1 逐字不动 + 末尾追加那段中文）：
+
+| 比较 | MAD/255 | PSNR |
+|---|---|---|
+| L1 vs L1 自己的两张样本（噪声底） | 50.4 | 10.1 dB |
+| **L1 vs 加了那段质量段** | **3.8** | **29.3 dB** |
+| L1 vs L3（各区域描述改写，正对照） | 44.6 | 10.4 dB |
+
+→ **画面没变。** 那段话是用来给编码 agent 定验收标准的，不是位图模型的输入。
+判「加一段话改没改画面」用 `pixel_diff()`（MAD / PSNR / 上中下分带），**别忘了同臂两张样本就是噪声底**。
+
+对照图 `C:\Files\Codes\unaserver\figures\landing-{arms,crops,quality-diff}.png`，
+脚本 `C:\Files\Codes\unaserver\scripts\s17_landing_arms.py`，
+逐臂数据与已试过判定不用：`C:\Files\Codes\unaserver\2026-10-30-能力边界.md` §3f；
+流程（需求 → 设计图 → 代码）：`C:\Files\Codes\unaserver\2026-11-01-从需求到设计图.md`。
+
 ## 本 skill 走 HTTP 做不了的（不是模型没有）
 
 - **图生图 / 换角度 / 换服装**：模型侧**跑通了**，靠离线 sd-cli 的 `-i <图> --strength <0..1>`；
