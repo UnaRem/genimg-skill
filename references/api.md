@@ -390,7 +390,126 @@ eight pixel rhythm … dense in data but spacious in padding`——**风格名�
 ui-{style-arms,style-detail,style-pairs}.png`，脚本 `C:\Files\Codes\unaserver\scripts\s16_ui_arms.py --style`，
 数据与已试过判定不用：`C:\Files\Codes\unaserver\2026-10-30-能力边界.md` §3e。
 
-## 营销站 / 落地页与资源图就照这个写法（实测 2026-11-01 13:36–14:03，八臂，同一份文案只差写法）
+## 后台 / 中台管理界面就照这个写法（实测 2026-11-01 15:0x，四种界面 × 各两张）
+
+**这一类最稳**：它本来就是网格 + 重复行，而网格与重复行正是它稳的原因。
+若依式列表页（表格 7 列 × 5 行 = 35 条字符串，两张都逐字全对）、左树右表、模态表单全部成立。
+骨架按真实后台的顺序写：侧栏 → 页签条 → 面包屑 → 搜索表单 → 工具栏 → 表格 → 分页。
+**不需要解释什么是若依 / 阿里云**，照真实骨架写就行。**四种形态的作业都是 103–113 s。**
+不稳的只有「清单的数量与层级」：菜单 10 项会丢项、12 项快捷会重复一个、y 轴刻度会乱序
+→ **要紧的清单写 6 项以内**。
+
+**若依式列表页（实测采用）**
+
+```text
+The image is a flat screenshot of a Chinese admin console page, edge to edge, no browser chrome, no
+device frame: the 用户管理 screen of a back-office system called 墨渡. Light theme, white panels on a
+very light grey page, blue-grey body text at ordinary small UI size, one vermilion accent, flat borders
+and no shadows except on the dropdown. Layout exactly as follows.
+a dark charcoal navigation rail, 240 pixels wide, running the full height of the left edge: the wordmark
+墨渡 at the top in white, then a vertical menu with group captions in small dim grey type reading 系统管理,
+内容管理, 系统监控, and under those, menu items in light grey type reading 用户管理, 角色管理, 菜单管理,
+部门管理, 字典管理, 文章管理, 分类管理, 评论管理, 服务监控, 缓存监控; the item 用户管理 is drawn selected
+with a lighter background and a thin vermilion left edge; small caret triangles sit beside the two
+expanded groups, and the collapsed groups show closed carets
+Along the top of the content area a slim white bar: at its left a row of open page tabs reading 首页
+and 用户管理 with a small close cross on the second tab, and a small dropdown labelled 页签操作; at the
+right of the bar a small magnifier icon, a bell icon, and a round avatar with the text 管理员.
+Below the bar a breadcrumb line reading 首页 / 系统管理 / 用户管理 in small grey type with the last item
+in dark.
+Then a white search-form panel with four labelled inline fields on one row: a text input labelled 用户名
+containing the placeholder 请输入用户名, a text input labelled 手机号码 containing 请输入手机号码, a select
+labelled 状态 showing 不限, a date-range field labelled 创建时间 showing 开始日期 至 结束日期, and at the
+right a small filled dark button reading 搜索 with a plain outlined button reading 重置 beside it.
+Below the search form a toolbar row of small buttons: a filled green plus button reading 新增, an outlined
+button reading 修改, an outlined red button reading 删除, an outlined button reading 导入, an outlined
+button reading 导出, and at the far right three small icon buttons for column visibility, refresh and density.
+Then the main table, full width, with a header row in small dark type reading 用户账号, 用户昵称, 部门,
+手机号码, 状态, 创建时间, 操作. Five data rows, all strings exact:
+row one  admin, 超级管理员, 墨渡科技, 138 0000 0000, an on switch in vermilion labelled 启用,
+2026-03-11 09:12:04, then the text links 修改 删除 and a disabled grey 删除 with a tooltip above it
+reading admin 不能删除;
+row two  chenmo, 陈默, 编辑部, 137 2211 0634, an on switch labelled 启用, 2026-04-02 14:20:31, links 修改 删除;
+row three  lin04, 林榆, 产品组, 136 8802 7741, an off grey switch labelled 停用, 2026-05-18 08:05:52, links 修改 删除;
+row four  zhoushu, 周叔, 运维, 135 6600 1982, an on switch labelled 启用, 2026-06-27 21:44:07, links 修改 删除;
+row five  xuanyin, 萱寅, 设计组, 139 4455 8823, an on switch labelled 启用, 2026-09-30 11:02:19, links 修改 删除.
+Under the table, on one line, a pagination bar: at the left small grey text reading 共 54 条, then a
+select reading 20条/页, then page buttons reading ‹ 1 2 3 4 › with 1 highlighted, and at the right the
+text 前往 1 页.
+Type is small and dense the way a real admin table is: row height about 40 pixels, body text around
+13 pixels, table header and menu items the same size. No oversized headline anywhere on this page.
+Every visible label is one of the strings given above.
+```
+
+**中台工作台（KPI + 图表 + 告警 + 快捷入口）** — 版面与文案成立；把快捷入口缩到 6–8 项、
+y 轴刻度只标两端（首尾）会更稳。逐字文本：`s18_admin_ui.py --emit a2`。
+
+```text
+The image is a flat screenshot of a Chinese cloud console overview dashboard called 墨渡 控制台, edge to
+edge, no browser chrome, no device frame. Light theme: a white top bar, a light grey page, white cards
+with hairline borders and small corner radius, dense small UI type around 13 pixels, blue-grey text,
+one vermilion accent for alerts only. Layout exactly as follows.
+A white top bar: the wordmark 墨渡控制台 at the left, then top-level nav links reading 工作台, 产品,
+费用, 备案, 工单, 文档, and at the right a wide search field containing the placeholder 搜索产品、文档与实例,
+then a globe icon with the text 华东1（杭州）, a bell icon with a small red dot, and an avatar labelled 运维.
+A narrow icon rail down the left edge with eight small icons and no text.
+The content column starts with a greeting line in medium dark type reading 早上好，运维, and under it a
+small grey line reading 上次登录 2026-11-01 08:42 · 华东1（杭州）.
+Then a row of four equal metric cards with hairline borders, each with a small grey label, a large but
+not oversized numeral and one line of small grey detail: 云服务器实例 with 42 and 较上周 +3; 对象存储用量
+with 8.4 TB and 较上月 +6.2%; 数据库实例 with 9 and 1 个待处理; 本月费用 with ¥4,382.60 and 账单日 11-03.
+Below the metric cards, two chart panels side by side. The wider left one is titled 近 7 日请求量 in
+small dark type with a small segmented control reading 7天 30天 90天 above a line chart with six x-axis
+labels reading 10-26 10-27 10-28 10-29 10-30 11-01, faint horizontal gridlines, a y-axis reading
+0 20k 40k 60k, and a filled light area beneath the line. The right one is titled 资源分布 with a donut
+chart in four muted colours and a legend listing 计算 42%, 存储 26%, 数据库 19%, 网络 13%.
+Under the charts, a wide panel titled 告警 with three rows each carrying a small vermilion dot, a message
+and a time: 磁盘使用率超过 85% on 节点 node-07, 2 分钟前; 证书将在 7 天后过期 on api.example.com,
+1 小时前; 备份任务失败 on db-main, 昨天 23:10.
+At the right of the page, a narrow column with two panels. The first is titled 我的资源 and holds a grid
+of small text-only links reading 云服务器, 对象存储, 云数据库, 负载均衡, 容器服务, 日志服务. The second is
+titled 最近操作 with a vertical timeline of four entries reading 创建了实例 i-7f31 · 10:12, 重启了
+db-main · 09:40, 修改了安全组 sg-2 · 昨天, 导出了账单 · 10-30.
+Nothing on this page is a hero headline: the largest text is the four metric numerals, everything else is
+small dense UI type. Every visible label is one of the strings given above.
+```
+
+**列表上叠模态表单** — 字段级状态（报错文案 + 红边、字数计数、多选 chips、树选择高亮、单选选中点）
+**给一句话就有**，做「表单出错长什么样」这类设计稿很值。
+
+```text
+The image is a flat screenshot of a Chinese admin console with a modal dialog open on top of it, edge to
+edge, no browser chrome, no device frame. Light theme, small dense UI type around 13 pixels, one
+vermilion accent.
+Behind the dialog, dimmed under a translucent grey scrim, a list page is visible but readable: a dark
+side rail with menu text, a toolbar row reading 新增 修改 删除, and a table with a header row reading
+用户账号 用户昵称 部门 状态 操作 and three faint rows of grey text.
+Centred on top of it, a white modal panel about 640 pixels wide with a small corner radius and a real
+drop shadow. Its header bar holds the title 新增用户 in medium dark type and a small close cross at the
+right. Its body is a two column form with grey labels above dark inputs, exactly these fields: 用户账号
+with an input containing a single vermilion error line under it reading 用户账号不能为空; 用户昵称 with an
+input containing 林榆; 归属部门 with a select showing 产品组 and a small open caret; 岗位 with a select
+showing two small selected chips reading 编辑 and 审稿 with remove crosses; 手机号码 with an input
+containing 136 8802 7741; 邮箱 with an input containing lin@example.com; 部门树 with a small tree picker
+showing three nodes reading 墨渡科技, 产品组 and a highlighted 设计组; 状态 with two radio buttons
+labelled 正常 and 停用, the first selected with a filled dot; 备注 with a tall empty textarea and a
+small grey counter reading 0 / 200 in its corner.
+The modal footer holds two buttons aligned right: a plain outlined button reading 取消 and a filled dark
+button reading 确定.
+Label text sits above each input at about 13 pixels; inputs are 32 pixels tall with hairline borders;
+only the 用户账号 field shows an error, and its border is vermilion. Every visible string is one of the
+strings given above.
+```
+
+**左树右表（骨架）** — 沿用上面那段侧栏 + 页签 + 面包屑，然后：
+左侧面板标题 `部门` → 搜索框 placeholder → `展开 / 折叠` → **六个节点，每行一个文件夹图标 + 名称 +
+右侧灰色计数数字，其中一行画选中态** → 右侧搜索行 + 工具栏 + 六列五行表格（含开关与禁用态）→ `共 6 条` 分页。
+六节点与计数两张全对；逐字文本：`s18_admin_ui.py --emit a3`。
+
+对照图 `C:\Files\Codes\unaserver\figures\admin-{arms,crops}.png`，脚本 `…\scripts\s18_admin_ui.py`，
+数据与已试过判定不用：`…\2026-10-30-能力边界.md` §3g。
+
+## 营销站 / 落地页与资源图就照这个写法（实测 2026-11-01 13:36–14:03，八种写法，同一份文案只差写法）
 
 **上面那套「按区域走帧 + 每区就地给文案」迁到营销站就成立，不需要新技巧。**
 一整屏落地页（nav / 两栏 hero / 三特性 / 五个客户名 / 底部滚动提示）**逐字全中**。
