@@ -151,7 +151,10 @@ Content-Type: application/json
 | 1024×1024 | 服务端 **27.62 s**（sampling 18.72 + VAE 4.74），客户端 **29.8 s**；**第二次独立复现 28.42 s**（sampling 19.4 + VAE 4.73），客户端 **30.9 s** → 两次差 ±1.5%，**按「约 28 s」算** | 实测 2026-10-30 21:06（`--seed 7`）与 21:20（`--seed 11`），同一台 Windows |
 | 1152×1536（1.77 MP，竖图） | **41.4 s**（sampling 30.9 / VAE 6.2），端到端 **44.7 s**；journal 独立复现过一次 → 非方形尺寸合法且已实测 | 实测 2026-10-31 15:58 |
 | 2048×2048 | **112.0–116.3 s**（sampling 95.6–98.8，占 85%；VAE 12.4 s）；纯生图峰值 18942 MiB | 实测（unaserver 侧记录） |
-| **任意尺寸怎么估** | 三档折算是 **26.7 / 23.4 / 26.7–27.7 s/MP** → 粗估取 **~26 s/MP**（1.77 MP 那档略低只有一个样本，不外推规律）。给用户报时间用它，别说"几十秒" | 由上面三行折算 |
+| **1024×2048（2.1 MP，整页 APP）** | 服务端 **49.4–55.6 s**（sampling 41–42 / VAE 7.8）；六个样本 | 实测 2026-11-01 17:1x–17:4x |
+| **1152×2048（2.36 MP，整页 web）** | 服务端 **54.0–61.0 s**（sampling 43–45 / VAE 7.6）；五个样本 | 实测 2026-11-01 17:1x–17:4x |
+| **prompt 长度不影响耗时** | 1126 → 2578 字符，同一尺寸服务端都是 49–61 s → **写多长不加时间**，只影响画面（见「一整页产品」节的长度上限） | 实测 2026-11-01（12 臂） |
+| **任意尺寸怎么估** | 各档折算是 **26.7 / 23.4 / 26.7–27.7 / 23.5–26.5 s/MP** → 粗估取 **~26 s/MP**（1.77 MP 那档略低只有一个样本，不外推规律）。给用户报时间用它，别说"几十秒" | 由上面三行折算 |
 | 排队 | 生图占**单生成令牌 FIFO**，期间 chat 全排队：实测一条 chat 等 **107.2 s** | 实测 |
 | 卸引擎 | 日志原文 `image job: the conversation could not be saved (session files do not support --layer-split); unloading the model` → KV 必丢 | 实测 2026-10-30 13:06 |
 | 引擎重载 | 三次实测 **59 / 63 / 66 s** → 按 **60–66 s** 算。重载由「下一个请求」触发（默认 `lazy`），不是自动发生 | 实测（journal 时间戳） |
@@ -606,6 +609,62 @@ diagonal gradient from deep indigo to vermilion. Statuses are coloured pill badg
 对照图 `C:\Files\Codes\unaserver\figures\concept-{T1,T2,T3}{,-crops}.png`，脚本
 `C:\Files\Codes\unaserver\scripts\s19_concept_ui.py`（`--batch local|gateway`、`--only`、`--skip-done`）。
 **做 1:1 文字裁块时左边界要留 30px 以上**：从文字起点裁会把每行第一个字母切掉，看着像模型丢字。
+
+## 一整页产品（APP 整页 / web 整页 nav→footer）就照这个写法（实测 2026-11-01 17:1x–17:4x，12 臂，全部本机）
+
+**这节解决什么**：之前出的图「都很小」——只有一屏的一角，不是一整页产品。
+根因是**横向尺寸只能画一个视口** + prompt 只描述了一块界面。换三件事之后 **12/12 臂都画成了整页**。
+
+**三件事**：
+
+1. **尺寸**：APP 用 `1024x2048`，web 整页用 `1152x2048`（服务端 49–61 s）。
+2. **整页骨架句**（放在开头）：
+   `A mobile app screen, portrait, drawn as ONE complete full-height page from the status bar at the top
+   down to the bottom tab bar, edge to edge, no device frame, no hands, no table.`
+   web 版：`A web product page drawn as ONE complete full-height page from the top navigation down to the
+   footer, exactly as it would read after scrolling to the bottom, portrait, edge to edge, no browser chrome.`
+3. **从上到下逐区列全**：`Blocks, top to bottom, every one present:` 然后一区一段。缺的那区就不会出现。
+
+**视觉焦点 / 重点聚焦要写成尺寸差**（抽象句不生效）：
+
+```
+Why this page is laid out this way, shown through what is on it: the page has one job — make the first
+number believable — so the panel with the large figure is twice the height of any other block, and every
+other block steps down from it. The pink appears only where the product acts or the data moves, so it
+reads as identity, not decoration.
+```
+
+**重复卡片按行绑定（本节最有价值的一条）**。`A / B / C` 这种一行清单会让字符串跨卡片扩散
+（每卡两行标题、同一句重复两遍、字段错绑到别的位）。到线的写法是**一行一句、句里写清 LEFT/RIGHT**：
+
+```
+A feed of exactly four cards in TWO COLUMNS — two rows, each card half the page width. Describe the
+page one ROW at a time, and inside each row say which card is on the left and which is on the right.
+The words in each sentence belong to that one card only:
+Row one, LEFT card: a 16:9 photograph of a man at an animation desk, a badge reading 04:12, the title
+用 Blender 做一部短片的全过程, a grey line 某川的录像间, a grey count 12.4万.
+Row one, RIGHT card: a 16:9 photograph of a convenience store at night, a badge reading 04:12, the title
+深夜便利店观察日记, a grey line 某川的录像间, a grey count 12.4万.
+Row two, LEFT card: …    Row two, RIGHT card: …
+Each card holds exactly one title and one badge. No title appears twice anywhere on the page.
+```
+
+单列列表用 `Card 1: …` / `Card 2: …`（六条全部逐字一次命中，**六张缩略图自动是六个不同场景**）；
+横排卡片用 `Card A: …`（实测连图标语义都对：时钟 / 对勾 / 循环箭头各归其卡）。
+
+**整条 prompt 控制在 2.1k 字符以内。** 把配色/字体/组件/间距/图标/动效写成一整段「设计系统锁定」
+（≈2.5k 字符）会**挤掉版面指令**：要求 two column 会画成单列或左图右文混排。要锁风格只留配色段
+（见 SKILL.md 3b）+ 组件形状两句。
+
+**动效只写状态**：`A thin accent progress bar runs partway across the bottom edge of that card, stopped at
+about forty percent` ✓ 出现；`one card lifted to 1.04 scale with a stronger shadow`、
+`a wide quiet band of empty page with nothing in it` ✗ 不出现，还会把文案质量换掉。
+
+**已试过判定不用**：长 Design Bible 段（单张）；把「为什么这样布局 / 为什么这个颜色」写成抽象句
+（区域级会让小字出现乱码级错字）；多列网格里用 `Card 1 / Card 2` 绑定（跨列扩散）；变换类动效。
+
+**完整可运行的原文**（H3 web / H4 双列 / H1 单列六条）在 `C:\Files\Codes\unaserver\scripts\s21_recipe.py`
+（`--emit H4` 直接打印）；逐臂判定在 `C:\Files\Codes\unaserver\2026-10-30-能力边界.md` §3j。
 
 ## 营销站 / 落地页与资源图就照这个写法（实测 2026-11-01 13:36–14:03，八种写法，同一份文案只差写法）
 
