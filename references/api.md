@@ -506,8 +506,57 @@ strings given above.
 右侧灰色计数数字，其中一行画选中态** → 右侧搜索行 + 工具栏 + 六列五行表格（含开关与禁用态）→ `共 6 条` 分页。
 六节点与计数两张全对；逐字文本：`s18_admin_ui.py --emit a3`。
 
-对照图 `C:\Files\Codes\unaserver\figures\admin-{arms,crops}.png`，脚本 `…\scripts\s18_admin_ui.py`，
-数据与已试过判定不用：`…\2026-10-30-能力边界.md` §3g。
+**去模板味：把插画 / 渐变 / 彩色图标底当内容点名（实测 2026-11-01 15:3x）**
+只给结构与文案 → 出来是通用后台模板（等高等宽白卡片、灰块占位头像、无插图无渐变）。
+**这些句子写进对应区域就出得来，而且不会让原本的文案退化**；贴到 prompt 末尾则完全不改画面。
+可直接替换进上面几段：
+
+```text
+# 顶部欢迎卡换成渐变 banner + 插画（把「greeting line」那段整段替换）
+The content column opens with a full-width banner card, about 170 pixels tall, filled with a soft diagonal
+gradient running from deep indigo at the left to vermilion at the right. Its left side holds the greeting
+line in large white type reading 早上好，运维 and under it a small white line reading 上次登录 …
+The right side of the same banner holds a flat vector illustration with no text in it: a stylised server
+rack with three floating rounded cards and two thin connection lines, drawn in cream, pale blue and white
+over the gradient.
+
+# 指标卡 / 快捷入口加彩色图标底（tint 逐张不同，这句成立）
+each with a small duotone icon inside a tinted rounded square at its left, the tints differing per card:
+pale indigo, pale green, pale amber, pale rose
+… each one a small duotone icon inside a tinted rounded square above its label, reading 云服务器, 对象存储 …
+
+# 空状态插画（最划算：一句话就有，配的文案还逐字对）
+an empty-state panel holding a flat vector illustration of an open empty box with three small papers
+floating out of it, drawn in indigo and cream with no text in it, and under that illustration a line of
+grey type reading 今天还没有操作
+
+# 侧栏底部帮助卡（渐变 + 小插画 + 按钮）
+pinned at the bottom of that rail a small card filled with a soft indigo gradient, holding a tiny flat
+illustration of a life ring and two lines of white type reading 需要帮助？ and a small white button
+reading 提交工单
+
+# 图表面积用渐变填充（比 flat 色块更像真产品）
+beneath the line a vertical gradient fill fading from soft vermilion near the line down to transparent
+at the axis
+
+# 列表页：渐变提示条 + 状态胶囊 + 每行头像插画
+Then a slim strip across the top of the content, filled with a soft diagonal gradient from pale indigo to
+pale rose, holding a line of dark type reading 本周新增 4 位用户，记得为新同事开通权限, and at its right
+a small flat vector illustration of three ID badges and a key with no text in it.
+a small pill badge with a pale green fill and green type reading 启用 / a small pill badge with a pale
+grey fill and grey type reading 停用
+Each 用户昵称 cell carries a small circular flat-vector avatar illustration to the left of the name,
+drawn in two tones. **别写「每行不同」**：`a different silhouette per row` 出来五行是同一款剪影。
+```
+
+**不成立的写法**：末尾贴 `Overall this screen should look like a real commercial product rather than a
+template: illustrations and artwork woven between the panels, soft gradients, coloured icon tiles, an
+asymmetric layout, avoiding a uniform grid of plain white cards…` → 与不加它的基线相比 **MAD 0.6/255、
+PSNR 46.5 dB**，比同写法两张之间的噪声底（7.1 / 25.4）还小，**画面没变**。
+
+对照图 `C:\Files\Codes\unaserver\figures\admin-{arms,crops}.png`，脚本 `…\scripts\s18_admin_ui.py`
+（`--emit s1|s2|s3|s4` 取四种设计层写法，`--probes` 读浓彩/淡彩占比：基线 0–1% → 写进区域后 16–19%），
+数据与已试过判定不用：`…\2026-10-30-能力边界.md` §3g、§3h。
 
 ## 营销站 / 落地页与资源图就照这个写法（实测 2026-11-01 13:36–14:03，八种写法，同一份文案只差写法）
 
