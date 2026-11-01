@@ -12,7 +12,8 @@ Content-Type: application/json
 {"model":"gpt-image-2","prompt":"...","size":"1024x1024","quality":"low","n":1,"output_format":"png"}
 ```
 
-实测耗时：1024x1024 + quality=low ≈ 25–40 秒。
+实测耗时：1024x1024 + quality=low ≈ 25–40 秒；**quality=high + 1536x1024 或 1024x1536 ≈ 23–32 秒**（实测 2026-11-01 16:4x–16:5x，6 张）。
+`quality` 确实生效（high 的细节明显比 low 多）。**1024x1536 这类竖屏可用**，长边不超 3840。
 
 **必须带非默认 User-Agent**：默认 `Python-urllib/3.x` 会被网关前面的 Cloudflare 拦成
 `HTTP 403 / error code: 1010`，请求根本没到鉴权。`curl` 和自定义 UA 实测可以通过。
@@ -73,6 +74,10 @@ Content-Type: application/json
   连 `"prompt":""` 这种应当本地拒绝的请求也是 500。**分辨是网关坏了还是我的参数坏了：发一个参数错的请求**
   （`"n":0` → **400 `n must be greater than 0`**）——返 400 说明网关与鉴权都活着，500 属于上游故障。
   这种 500 不产出图，重试不重复计费，但仍应先确认再试。
+- **偶发断连（实测 2026-11-01 16:4x）**：`[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol`。
+  同一请求连断 4 次出现过，**重试（脚本里 3 次）就能过**，不是参数问题也不是鉴权问题。
+  因为按张计费，**补跑要跳过已经出过图的项**（`s19_concept_ui.py --only … --skip-done`），
+  判断依据是同名 `.meta.json` 里记的 backend + job key。取图那一步（`url` 下载）也会断，要单独重试。
 
 ## 未验证
 
@@ -557,6 +562,50 @@ PSNR 46.5 dB**，比同写法两张之间的噪声底（7.1 / 25.4）还小，**
 对照图 `C:\Files\Codes\unaserver\figures\admin-{arms,crops}.png`，脚本 `…\scripts\s18_admin_ui.py`
 （`--emit s1|s2|s3|s4` 取四种设计层写法，`--probes` 读浓彩/淡彩占比：基线 0–1% → 写进区域后 16–19%），
 数据与已试过判定不用：`…\2026-10-30-能力边界.md` §3g、§3h。
+
+**先提醒一句上面这段的边界**：这些句子（渐变 banner、四色图标底、彩色胶囊）会把装饰画出来，但
+**多处彩色 + 大片渐变正是「AI 味」的来源**（2026-11-01 16:5x 的用户判定，见下节）。
+用它们之前先把配色收敛好；渐变只在底层用一处。
+
+## 产品概念图（移动端 App / Web 应用 / 三屏概念板）就照这个写法（实测 2026-11-01 16:2x–16:5x，3 题材 × 3 写法 × 2 后端）
+
+**结论：「有没有主次」是配色写法问题，不是后端问题。** 同一条 prompt 下两个后端的结构与文案几乎一样；
+**只改下面这一段配色描述（卡片、边框、阴影全照旧）就到线，而且小字号文案仍然逐字全对。**
+
+真实开源产品的界面有三条共同做法（dub.co 官网界面、mihon 的 fastlane 截图、huly 界面三处独立一致）：
+**强调色只有一处、面积 <2%**；**彩色全部来自内容**（照片、封面、一张图表）；**框架全中性、卡片无边框、
+分组靠留白和一条细线**；**装饰只在最底层**（1px 方格网、标题区一抹淡色）。取真实界面的办法：
+官网取 `og:image`；开源 App 用 `GET api.github.com/repos/<repo>/git/trees/<branch>?recursive=1`
+找 `phoneScreenshots`，再从 `raw.githubusercontent.com` 取。**没有图片输入端点，所以参考只能翻成文字。**
+
+```text
+# 这一段是本轮到线的写法（只改配色，不动卡片结构）
+Colour discipline: exactly ONE accent colour used in under two percent of the picture — one filled
+button and one selected navigation item. All the colour in the picture comes from the content itself:
+cover artwork, real photographs of people, one data chart. UI chrome carries no gradients and no
+coloured icon tiles.
+
+# 要更接近真实产品，再加（实测会让小字号出现 2 处错字，收益不如上一段）
+Depth comes from type size and whitespace, not from cards: no borders and no shadows around the panels
+— groups are separated by whitespace and a single hairline divider only. One large display headline,
+then a clear step down to 15px body and 12px meta text. Decorative layers sit behind everything and are
+barely visible: a faint 1px square grid across the background, and a single soft pale wash behind the
+headline area.
+```
+
+**不成立 / 反而加重 AI 味的写法**：`Each panel is a white card with a hairline border and a soft shadow.
+Section titles sit on small rounded coloured chips. Icons sit inside tinted rounded squares, the tints
+differing per item: pale indigo, pale green, pale amber, pale rose. The top area is filled with a
+diagonal gradient from deep indigo to vermilion. Statuses are coloured pill badges.`
+→ 装饰全都出来，但出来就是「AI 味」：上半屏一整片渐变、五个导航各一种彩色底。
+
+**两个后端怎么挑**（详细数字在 unaserver 的能力边界 §3i）：付费那条只在两种情况下值得花——
+**图里的数字必须对**（有序时间、金额：默认后端把 `07:45`→`08:45`、`21:30`→`07:90`，付费的同写法全对）、
+**要真实摄影素材**（它会自己加 logo 与照片，不可控）。其余都用默认后端（免费、且 1:1 文字判定同样全对）。
+
+对照图 `C:\Files\Codes\unaserver\figures\concept-{T1,T2,T3}{,-crops}.png`，脚本
+`C:\Files\Codes\unaserver\scripts\s19_concept_ui.py`（`--batch local|gateway`、`--only`、`--skip-done`）。
+**做 1:1 文字裁块时左边界要留 30px 以上**：从文字起点裁会把每行第一个字母切掉，看着像模型丢字。
 
 ## 营销站 / 落地页与资源图就照这个写法（实测 2026-11-01 13:36–14:03，八种写法，同一份文案只差写法）
 
