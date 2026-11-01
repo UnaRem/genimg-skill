@@ -94,6 +94,8 @@ python ~/.config/opencode/skills/genimg/scripts/genimg.py \
   **界面上的有序数字序列不稳**（日历日号 1–31、12 项月份刻度、四段分段控件：同一份 12 项刻度在浅色臂两张都排对、
   在深色臂一张留空一格一张重复 `10月`；日号出现 `38`、`24` 三次；分段控件丢「本年」）。
   关键序列要缩短或局部放大，加大 `steps` 也没用。
+  **界面稿的材质也只到得了「曲线下的渐变面积」**：`frosted glass` / `blurred backdrop` / `large rounded corners`
+  一个都不出现；真实摄影或产品渲染也画不出来（见「界面稿的风格与密度」）。
 - **没有未测项了**——以前那条「图里渲染中文文字未测」已在 2026-10-31 测掉（结论：可用）。
   新的能力要求（例如精确换行、指定字体族）先测再接活。
 - 对照图与逐条数据在 `C:\Files\Codes\unaserver\2026-10-30-能力边界.md` §3 / §3b / §3c / §3d（那个仓是这台机的调试台）。
@@ -130,6 +132,33 @@ python ~/.config/opencode/skills/genimg/scripts/genimg.py \
 - **成本**：2048×1152 `n=1` ≈ 62 s、`n=2` ≈ 104–111 s；1536×1024 `n=2` = 64 s。
   界面稿要 ≥1536 才看得清字段文字。
 - **验收只认 1:1 裁块**（`read` 看缩略图时伪英文和真字长得一样）。
+- **完整参考 prompt 模板在 `references/api.md`**（六段骨架 + 槽位 + 可直接跑的命令）；
+  要逐字节复现那份文字全对的成品就 `s16_ui_arms.py --emit e2`（整屏）/ `--emit e4`（局部放大两块面板）。
+  它已经包含 `an Apple-class product interface … generous quiet margins … eight pixel rhythm`——
+  **风格骨架不是缺的东西**，要改视觉质感请先读下一节「界面稿的风格与密度」。
+
+### 界面稿的风格与密度：要改风格就改那一段的描述（实测 2026-11-01 12:45–13:08，六臂）
+
+**结论：改「区域」有效，改「全局句」无效。** 六臂都是从上面那份参考 prompt 出发，
+只替换指定的句子（同一屏、同一份文案、同 seed）。
+
+- **要更少、更大、有焦点 → 重写那个区域本身**（有效）：把 hero 写成
+  「左侧 55% 是一整块**没有卡框**的排版：标签小、中文标题约 90px、数字约 220px」，
+  其它区域写成 `small, low contrast and muted` → 两张都成了 apple 那种「一个大焦点 + 其余很安静」。
+- **不要在末尾加全局风格句**（`only four panels on a mostly empty canvas`、`generous quiet margins`、
+  "只留四个区块"）：**区块一个都不会少，栅格也不变**。要少画就把那几段区域描述删掉。
+- **换深色主题要把每一处颜色词一起改。** 只把第一段改成 dark theme，三张 hero 卡仍然是纯白——
+  因为正文里逐区域写死了 `a large white card`。逐处换成 `a large dark charcoal card with a thin light
+  border`、`bright white numerals`、`mid grey bars`、`bright white heading` 之后两张都成立。
+  **自检清单**：`white` / `off-white` / `near-black` / `dark type` / `pale grey` 在新主题下还成立吗。
+- **质感只有一个词管用**：`a filled gradient area beneath the line` + `a subtle glow`（曲线下的渐变面积，两张都有）。
+  **`frosted glass`、`blurred backdrop`、`large rounded corners`、`fine light rim` 一个都没出现**——别堆材质词。
+- **要加组件（搜索框、头像、开关、复选框、分页、页脚），必须同时给文案。** 实测只列组件名：约一半会出现
+  （铃铛、头像、开关、复选框列、分页 `⟨ 1 2 3 ⟩`、四列页脚都出来了），另一半不出现；
+  **而且没给文案的组件会自造伪中文**（`笔用等分14号`、`本年运历`）——伪文字不只发生在英文。
+- **图表的 y 轴数字刻度能画出来，但数值不成比例**（实测 `100 / 7.5 / 5.0 / 3.0 / 1.5 / 0.5`）。要紧的刻度就自己写死。
+- **做不到（写也写不出）**：真实摄影或产品渲染、玻璃/模糊材质、跨组件绝对一致的圆角与描边。
+
 
 硬限制与差异（照做，别硬套网关那套参数）：
 

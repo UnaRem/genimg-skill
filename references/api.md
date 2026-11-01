@@ -263,9 +263,72 @@ Content-Type: application/json
 | E7 | E2 写法迁到**日历热力图屏** | 2,843 | 2048×1152·2·8 | 104.4 | 明细卡 `3 月 14 日` + 三行 + `合计 ¥224`、排行五行全对；**日号网格不是 1–31**：出现 `24` 三次、`38`，第二张 `1 3 10 18 13 / 13 16 10 11 18` |
 | D1 / D2 | 把另两屏（深色总览、AI 问答）按 E2 写法重做 | 3,153 / 2,543 | 2048×1152·2·8 | 111.5 / 104.3 | 气泡、失败提示、回答卡三行表、数据源三行全对；**月份刻度**一张把 `10月` 留空、另一张写两遍；**四段分段控件丢了第三段** |
 
-**写法要点**：
+### 参考 prompt（照这个骨架换槽位，实测逐字命中的那份就是它生成的）
 
-- **先列一张「这一屏有哪些文案」的表**，再逐条放进 prompt，**用引号包住原样字符串**
+六段，按区域走帧；**屏上文案一律用引号包住原样字符串**，中文/`¥`/日期直接写。
+槽位用 `<>`，不要留空段落——空段落会让模型自己填内容。
+
+```text
+The image is a wide flat screenshot of a <哪类产品> application in a <light|dark> theme,
+an Apple-class product interface with white and graphite grey surfaces, one deep <强调色>
+accent, hairline dividers and generous quiet margins.
+The whole frame is the interface itself, edge to edge, with no monitor, no keyboard and no
+desk around it; the surface is a flat matte off-white canvas with panels of pure white
+lifted by barely visible soft shadows.
+
+Down the left edge sits a narrow rail about sixty pixels wide with <n> small grey line icons
+stacked vertically, the topmost one tinted <强调色> to show it is selected, each icon with a
+tiny charcoal label beneath it reading in order "<导航1>" "<导航2>" "<导航3>", and the wordmark
+"<产品名>" set in medium charcoal type at the very top of that rail.
+Across the top band, a slim header carries the title "<标题栏文案>" in sixteen pixel medium
+grey type at the left, and a plain text button "<按钮>" at the far right, with a one pixel
+hairline rule running the full width beneath it.
+
+In the upper-left of the body, a large white card holds the label "<卡片标签>" in small grey
+capitals above a very large tabular figure "<大数字>" in near-black numerals roughly seventy
+pixels tall, with a small upward delta "<+x.x%>" in green beside it. To its right, two smaller
+cards of identical size each carry a label and a figure: "<标签2>" with "<数字2>", and
+"<标签3>" with "<数字3>".
+Across the middle band, a full-width chart panel is titled "<图表标题>" in dark medium weight
+type at its upper-left, with two legend swatches to its right reading "<图例1>" and "<图例2>".
+A single thin <强调色> line rises and falls across <4–8 之间取一个数> positions above a series
+of pale grey bars; beneath the plot, <同一个数> small grey tick labels read "<刻度1>" "<刻度2>"
+"…". Hovering over the last point, a small floating card with rounded corners and a crisp shadow
+reads "<提示框标题>" in dark type, then "<提示框行1>" and "<提示框行2>" as two right-aligned
+grey lines.
+On the right side of the body, a narrow panel titled "<排行标题>" lists <n> ranked rows, each
+with a label and amount reading "<行1 金额>" beside thin horizontal bars that step down in
+length. Directly beneath it, a second panel titled "<第二面板标题>" shows <n> rows reading
+"<行1>", "<行2>", the second row tinted amber to mark it over budget while the others stay grey-green.
+Along the lower third, a wide table spans the frame under a dark heading; its header cells read
+"<表头1>" "<表头2>" "<表头3>" "<表头4>" in small grey capitals, and <n> hairline-separated rows
+below them read in order "<整行1>", "<整行2>", each amount right-aligned in tabular numerals,
+with the third row carrying a faint grey hover fill and a small pointer at its left edge.
+At the bottom right of the frame, a footnote in pale grey reads "<脚注>".
+
+The lighting is flat and even, the kind of diffuse front light that produces no highlights on
+the panels, with only the soft shadows under the floating card and the hover row giving any depth.
+The overall composition is a strict asymmetric grid on an eight pixel rhythm, calm and monochrome
+apart from one <强调色> accent and one amber warning, dense in data but spacious in padding,
+with numerals as the visual hierarchy and every element aligned to a shared column structure.
+```
+
+跑这条的命令（界面稿字段多，**≥1536 才看得清**；`--n 2` 留一张候选）：
+
+```sh
+python ~/.config/opencode/skills/genimg/scripts/gen_local_strata.py \
+  --prompt "$(cat ui-prompt.txt)" --size 2048x1152 --n 2 --seed 1530101906 --force-large \
+  --slug "界面稿-<屏名>"
+```
+
+要**逐字节复现那份文字全对的成品**，直接取它的原文，不要用上面改过槽位的版本：
+
+```sh
+python /c/Files/Codes/unaserver/scripts/s16_ui_arms.py --emit e2     # 整屏仪表盘，文字全对
+python /c/Files/Codes/unaserver/scripts/s16_ui_arms.py --emit e4     # 局部放大两块面板，可读性最高
+```
+
+**写法要点**：- **先列一张「这一屏有哪些文案」的表**，再逐条放进 prompt，**用引号包住原样字符串**
   （`"总览"`、`"¥128,640"`、`"03-14 全家便利店 餐饮 ¥32"`）。中文、`¥`、日期、金额都对。
 - **顺序按区域走帧**：整屏是什么 + 主题 → 侧栏（wordmark、每条导航）→ 顶栏 → hero（标签 + 大数字 + delta）→
   图表（标题 + 图例 + **每一个刻度标签**）→ 排行（标题 + 每行文字与金额）→ 表格（**每个表头单元格** + 每行每个字段）→ 脚注。
@@ -286,6 +349,46 @@ Content-Type: application/json
   脚本 `C:\Files\Codes\unaserver\scripts\s16_ui_arms.py`（`--emit` 取 prompt，`--post` 直连带 `steps`，
   `--figure` / `--crops` / `--copy-check` / `--before-after` 拼图）。完整表与已撤回项：
   `C:\Files\Codes\unaserver\2026-10-30-能力边界.md` §3d。
+
+### 要改风格：改那一段的描述，不要加全局句（实测 2026-11-01 12:45–13:08，六臂，同一屏同文案同 seed）
+
+上面那份参考 prompt 已经含 `an Apple-class product interface … generous quiet margins …
+eight pixel rhythm … dense in data but spacious in padding`——**风格名不是缺的东西**。
+六臂只替换指定的句子（脚本先断言原文存在），结果只分两种：**改到区域里就生效，只改全局句就不生效。**
+
+| 只改这一处 | 结果 |
+|---|---|
+| 末尾把 `dense in data but spacious in padding` 换成 `only four panels on a mostly empty canvas…`，数字 `seventy`→`one hundred twenty pixels` | **✗ 区块一个不少、栅格不变**，只有新写的那句标题与更大的数字出现 |
+| 插一段列组件名：搜索框 / 铃铛 / 头像 / 四段胶囊 / 三张 sparkline 卡 / 网格线与 y 轴刻度 / 开关 / 复选框列 / 合计行 / 分页 / 四列页脚 | **◐ 约一半出来**（铃铛、头像、开关、复选框、`⟨ 1 2 3 ⟩`、四列页脚、y 轴刻度）；另一半没有；**没给文案的组件自造伪中文**（`笔用等分14号`）；y 轴数值不成比例 |
+| 把「平光无高光」换成 模糊背景 + 磨砂玻璃 + 大圆角 + 顶边高光 + 发光与渐变面积 | **◐ 只有「曲线下的渐变面积 + 柔光」成立**，其余四项一个都没出现 |
+| 第一段 `light theme` → `dark theme` + 画布那句改成 near-black | **✗ 页面/侧栏/表格黑了，三张 hero 卡仍纯白**——正文写死了 `a large white card` |
+| 上一条基础上把 7 处区域颜色词逐处改过来 | **✓ 两张全深色**、文字仍逐字对、12 个月刻度仍排对 |
+| 重写 hero 那段：左侧 55% 一整块**无卡框**排版（中文标题 ~90px、数字 ~220px），其它区域 `small, low contrast and muted` | **✓ 两张成立**：apple 那种「一个巨大焦点 + 其余很安静」 |
+
+两条能直接用的改法（对上面模板做替换）：
+
+```text
+# 深色主题：第一段改成 dark/near-black 之后，还要把这些词逐处换掉
+  a large white card …                      → a large dark charcoal card with a thin light border …
+  in near-black numerals …                  → in bright white numerals …
+  titled "…" in dark medium weight type     → titled "…" in bright white medium weight type
+  above a series of pale grey bars          → above a series of mid grey bars
+  a small floating card … in dark type      → a small floating card … in bright white type
+  a wide table … under a dark heading       → a wide table … on a dark panel with a bright white heading
+（自检：white / off-white / near-black / dark type / pale grey 在深色里都不该再出现）
+
+# 强层级（apple 式）：重写主数字那一段，别加全局句
+  The left 55 percent of the body is one oversized editorial headline with no card and no border,
+  surrounded by empty space: the label "净资产" in small grey capitals, then a very large thin-weight
+  headline "你的钱，这一个月的全貌" at roughly ninety pixels, then the figure "¥128,640" at roughly
+  two hundred twenty pixels in near-black numerals …
+  + 其它区域前面加一句：Everything to the right of and below that headline is rendered small,
+    low contrast and muted in light grey so the headline stays the only focal point.
+```
+
+**六臂的服务端作业都是 112 s**（风格写法不影响耗时）。对照图 `C:\Files\Codes\unaserver\figures\
+ui-{style-arms,style-detail,style-pairs}.png`，脚本 `C:\Files\Codes\unaserver\scripts\s16_ui_arms.py --style`，
+数据与已试过判定不用：`C:\Files\Codes\unaserver\2026-10-30-能力边界.md` §3e。
 
 ## 本 skill 走 HTTP 做不了的（不是模型没有）
 
