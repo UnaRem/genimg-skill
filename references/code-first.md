@@ -49,10 +49,17 @@
 
 ## 验收（别只看代码）
 
+在新项目里自己起一个能构建的壳（我这边验证过的组合：**Vite + React + Tailwind v4**，
+`bun add --registry https://registry.npmmirror.com` 可用），跑三步：
+
 ```sh
-# 本地起个 vite + tailwind v4 的壳子，构建 + 1920x1088 截图，参考 goodcase-eval/render/
-python to_project.py && cd render && bunx vite build && python -m http.server 5199 --bind 127.0.0.1
+# 1) 构建必须过（截断过的代码常常在这里才暴露）
+bunx vite build
+# 2) 本地起服务并截图 1920x1088（示例用 playwright / chrome-devtools，任选）
+python -m http.server 5199 --bind 127.0.0.1
 ```
+
+（我本机现成的一份参考实现在 `C:\Files\Codes\unaserver\goodcase-eval\render\`，只当抄作业用，别依赖它。）
 
 - **文案命中用 `document.textContent`（空白归一）+ input placeholder 自动判定**，
   但条件渲染要按交互采样：tab 浮层、打字机、`sm:hidden` 菜单在某一瞬间取不到，据此判负会误判。
