@@ -2,16 +2,23 @@
 # -*- coding: utf-8 -*-
 """文生图：默认走本机 Strata 的 Qwen-Image-2.1-Turbo；--backend gateway 走 fastaitoken 网关的 gpt-image-2。落盘到本地。
 
-仅用 Python 3.9 标准库。契约见同 skill 的 references/api.md。
+只用 Python 3.9+ 标准库。契约见同 skill 的 references/api.md。
+
+两种发法：
+  单张   --prompt "…" [--size … --n … --seed …]
+  一批   --jobs jobs.json          # JSON 数组或 JSONL，每条一个作业；命令行参数当默认值
+         --skip-done               # 已经在 out 目录里出过的（prompt+size+n+seed 相同）跳过，补跑用
+         --retries 2               # 网络断连 / 上游 5xx 重试次数（实测网关偶发 SSL EOF，重试能过）
 
 退出码：
-  0 成功
+  0 成功（批量：全部成功）
   1 响应里没有图片（结构变化或被风控拦截）
   2 参数错误 / 缺少 API key
   3 HTTP 错误（状态码与错误体原样打印）
   4 网络错误或超时（local 的 --check 探活不通也算）
+  5 批量里至少一条失败（前面成功的仍算数，摘要里写清几条没成）
 
-按次计费：脚本不自动重试，失败就是失败，是否再试由人决定。
+计费与代价：网关按张计费，但「没出图」的 5xx 与断连不产出图，重试不重复付。
 本机后端不花钱，但会独占 GPU 并卸掉正在用的 LLM，代价见 SKILL.md。
 """
 
@@ -35,6 +42,7 @@ QUALITY_CHOICES = ("low", "medium", "high")
 # 实测计费按尺寸分档：1K 档 $0.10/张，2K 档 $0.15/张，超过 1K 要先确认
 LARGE_LIMIT = 1024
 TIMEOUT = 300
+DEFAULT_RETRIES = 2  # 总共 3 次尝试；实测网关出现过连断 4 次，但 3 次尝试内基本能过
 
 # 本机 Strata（实测契约见 references/api.md，2026-10-30）
 DEFAULT_LOCAL_URL = "http://192.168.1.21:8080"
@@ -49,11 +57,15 @@ DEFAULT_BACKEND = "local"
 BACKEND_NAMES = ("GENIMG_BACKEND",)
 BACKEND_CHOICES = ("gateway", "local")
 
+# 作业字段（--jobs 里每条允许的键）
+JOB_KEYS = ("slug", "prompt", "size", "n", "seed", "quality", "backend")
+
 EXIT_OK = 0
 EXIT_NO_IMAGE = 1
 EXIT_USAGE = 2
 EXIT_HTTP = 3
 EXIT_NETWORK = 4
+EXIT_PARTIAL = 5
 
 # Windows 控制台默认 cp936，中文诊断信息会被上层当成二进制。固定按 UTF-8 输出。
 for _stream in (sys.stdout, sys.stderr):
@@ -108,7 +120,7 @@ def lookup_setting(names, env_map):
 
 def parse_size(text, backend):
     """把 1024x1024 / 1024*1024 归一化成 '1024x1024'，按后端校验后退出或返回。"""
-    normalized = text.strip().lower().replace("*", "x").replace("×", "x")
+    normalized = str(text).strip().lower().replace("*", "x").replace("×", "x")
     match = re.fullmatch(r"(\d{3,4})x(\d{3,4})", normalized)
     if not match:
         eprint("[genimg] size 格式应为 宽x高，例如 1024x1024（收到：%s）" % text)
@@ -138,31 +150,110 @@ def sanitize_slug(text):
     return cleaned[:40] or "image"
 
 
-def build_body(args, size, quality):
+def read_jobs(path):
+    """读 --jobs 文件：JSON 数组、JSONL，或每行「slug<TAB>prompt」的 txt。
+
+    允许 markdown 代码围栏（从整篇笔记里直接取用）。返回作业字典列表。
+    """
+    text = Path(path).expanduser().read_text(encoding="utf-8")
+    fence = re.findall(r"```(?:json|jsonl)?\s*\n(.*?)```", text, re.S)
+    if fence:
+        text = "\n".join(fence)
+    stripped = text.strip()
+    jobs = []
+    if stripped.startswith("["):
+        jobs = json.loads(stripped)
+    else:
+        for line_no, raw in enumerate(text.splitlines(), start=1):
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("{"):
+                jobs.append(json.loads(line))
+            elif "\t" in line:
+                slug, prompt = line.split("\t", 1)
+                jobs.append({"slug": slug.strip(), "prompt": prompt.strip()})
+            else:
+                eprint("[genimg] %s 第 %d 行看不懂：要 JSON 对象、JSON 数组，或「slug<TAB>prompt」"
+                       % (path, line_no))
+                sys.exit(EXIT_USAGE)
+    if not jobs:
+        eprint("[genimg] %s 里没有作业" % path)
+        sys.exit(EXIT_USAGE)
+    bad = [j for j in jobs if not isinstance(j, dict) or not j.get("prompt")]
+    if bad:
+        eprint("[genimg] %s 里有作业缺 prompt（每条至少要有 prompt）" % path)
+        sys.exit(EXIT_USAGE)
+    unknown = sorted({k for j in jobs for k in j if k not in JOB_KEYS})
+    if unknown:
+        eprint("[genimg] %s 里有不认识的字段：%s（可用字段：%s）"
+               % (path, ", ".join(unknown), ", ".join(JOB_KEYS)))
+        sys.exit(EXIT_USAGE)
+    return jobs
+
+
+def job_identity(job):
+    """用来判断「这条是不是已经出过」的身份：这四样相同 → 输出逐字节相同（本机实测）。"""
+    return (job.get("backend"), job.get("prompt"), job.get("size"),
+            job.get("n"), job.get("seed"))
+
+
+def already_done(out_dir, job):
+    """扫 out 目录里的 .meta.json，找到身份相同的就返回它的图片文件名。"""
+    want = job_identity(job)
+    for meta in sorted(out_dir.glob("*.meta.json")):
+        try:
+            data = json.loads(meta.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            continue
+        requested = data.get("requested") or {}
+        got = (data.get("backend"), requested.get("prompt"), requested.get("size"),
+               requested.get("n"), requested.get("seed"))
+        if got == want:
+            stem = meta.name[: -len(".meta.json")]
+            for png in out_dir.glob(stem + "*.png"):
+                return png.name
+    return None
+
+
+def build_body(job, size, quality):
     """按后端拼请求体。本机端点照收 model/quality 但会忽略，发出去只会误导，所以不发。"""
-    if args.backend == "local":
+    if job["backend"] == "local":
         body = {
-            "prompt": args.prompt,
+            "prompt": job["prompt"],
             "size": size,
-            "n": args.n,
+            "n": job["n"],
             # 服务端默认就是 b64_json；返回的 url 是绝对地址且重启后 404，所以明确要 b64
             "response_format": "b64_json",
         }
-        if args.seed is not None:
-            body["seed"] = args.seed
+        if job["seed"] is not None:
+            body["seed"] = job["seed"]
         return body
     return {
         "model": "gpt-image-2",
-        "prompt": args.prompt,
+        "prompt": job["prompt"],
         "size": size,
         "quality": quality,
-        "n": args.n,
+        "n": job["n"],
         "output_format": "png",
     }
 
 
-def request_json(url, key, body, timeout):
-    """POST 一个 JSON 请求，返回 (状态码, 文本)。HTTP 错误退出 3，网络错误退出 4。"""
+class Retryable(Exception):
+    """可以重试的失败：网络断连、超时、上游 5xx。"""
+
+    def __init__(self, why, kind):
+        super(Retryable, self).__init__(why)
+        self.why = why
+        self.kind = kind  # "network" 或 "http5xx"
+
+
+def request_json(url, key, body, timeout, retries):
+    """POST 一个 JSON 请求，返回 (状态码, 文本)。
+
+    可重试的情况（实测）：SSL UNEXPECTED_EOF / 连接被重置 / HTTP 500 "Upstream gateway error"。
+    这两种都不产出图，所以重试不重复计费。参数错（400）不重试——那是我的请求写错了。
+    """
     payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
     headers = {
         "Authorization": "Bearer " + key,
@@ -170,18 +261,29 @@ def request_json(url, key, body, timeout):
         # 默认 UA 是 Python-urllib/3.x，会被网关前面的 Cloudflare 拦成 403 error code: 1010
         "User-Agent": USER_AGENT,
     }
-    request = urllib.request.Request(url, data=payload, method="POST", headers=headers)
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return response.status, response.read().decode("utf-8", "replace")
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")
-        eprint("[genimg] HTTP %s" % exc.code)
-        eprint(detail[:2000])
-        sys.exit(EXIT_HTTP)
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        eprint("[genimg] 网络失败：%s" % exc)
-        sys.exit(EXIT_NETWORK)
+    for attempt in range(retries + 1):
+        last = None
+        request = urllib.request.Request(url, data=payload, method="POST", headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return response.status, response.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")
+            if exc.code >= 500:
+                last = Retryable("HTTP %s %s" % (exc.code, detail[:200]), "http5xx")
+            else:
+                eprint("[genimg] HTTP %s" % exc.code)
+                eprint(detail[:2000])
+                sys.exit(EXIT_HTTP)
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last = Retryable("网络失败：%s" % exc, "network")
+        if attempt < retries:
+            eprint("[genimg] 第 %d 次尝试失败（%s），不产出图所以不重复计费，重试…"
+                   % (attempt + 1, last.why))
+            time.sleep(min(5, 2 * (attempt + 1)))
+            continue
+        raise last
+    raise Retryable("未知失败", "network")
 
 
 def get_health(base_url, key):
@@ -228,11 +330,158 @@ def warn_local_cost():
            "（穿插一次 = 多付一轮，实测 80–120 s）。同 prompt 的候选用 --n（到 %d）。" % LOCAL_N_MAX)
 
 
+def resolve_backend(cli_backend, env_map):
+    """后端：命令行 > .env 的 GENIMG_BACKEND > 默认本机。"""
+    if cli_backend is not None:
+        return cli_backend, "命令行"
+    env_backend, backend_source = lookup_setting(BACKEND_NAMES, env_map)
+    env_backend = (env_backend or "").strip().lower()
+    if env_backend and env_backend not in BACKEND_CHOICES:
+        eprint("[genimg] GENIMG_BACKEND 只认 %s，收到 %r"
+               % (" / ".join(BACKEND_CHOICES), env_backend))
+        sys.exit(EXIT_USAGE)
+    if env_backend:
+        return env_backend, backend_source
+    return DEFAULT_BACKEND, "默认"
+
+
+def backend_endpoint(backend, env_map, skill_dir):
+    """返回 (key, key_source, endpoint, base_url, timeout, billed_note)。base_url 只给 /health 用。"""
+    if backend == "local":
+        key, key_source = lookup_setting(LOCAL_KEY_NAMES, env_map)
+        if not key:
+            eprint("[genimg] 未找到本机 api key：在 %s 写 STRATA_LOCAL_KEY=..."
+                   "（取自远端 /data/Strata/strata-iq3_s.json 的 api_key）" % (skill_dir / ".env"))
+            sys.exit(EXIT_USAGE)
+        base_url, _ = lookup_setting(LOCAL_URL_NAMES, env_map)
+        base_url = (base_url or DEFAULT_LOCAL_URL).rstrip("/")
+        return key, key_source, base_url + "/v1/images/generations", base_url, LOCAL_TIMEOUT, \
+            "本机端点不收费，但作业已经跑完"
+    key, key_source = lookup_setting(GATEWAY_KEY_NAMES, env_map)
+    if not key:
+        eprint("[genimg] 未找到 API key：在 %s 写 GENIMG_API_KEY=...（或 FASTAITOKEN_IMAGE_KEY=...）"
+               % (skill_dir / ".env"))
+        sys.exit(EXIT_USAGE)
+    return key, key_source, API_URL, API_URL, TIMEOUT, "接口已计费"
+
+
+def check_job(job, force_large):
+    """逐条校验参数；不合法就退出 2（批量的任一条错都不该半发）。"""
+    backend = job["backend"]
+    if job["seed"] is not None and backend != "local":
+        eprint("[genimg] --seed 只在本机后端实测过（同 seed 逐字节可复现）；"
+               "网关的 seed 行为未测，要用请用 local")
+        sys.exit(EXIT_USAGE)
+    if job["seed"] is not None and job["seed"] < 0:
+        eprint("[genimg] --seed 需要非负整数，收到 %s" % job["seed"])
+        sys.exit(EXIT_USAGE)
+    if backend == "local":
+        if job["n"] < 1 or job["n"] > LOCAL_N_MAX:
+            # 报错文案照抄服务端实测原文：n: a whole number from 1 to 4
+            eprint("[genimg] n: a whole number from 1 to %d（收到 %d）" % (LOCAL_N_MAX, job["n"]))
+            sys.exit(EXIT_USAGE)
+    elif job["n"] < 1:
+        eprint("[genimg] n 至少为 1")
+        sys.exit(EXIT_USAGE)
+    job["size"] = parse_size(job["size"], backend)
+    if max(int(job["size"].split("x")[0]), int(job["size"].split("x")[1])) > LARGE_LIMIT \
+            and not force_large:
+        if backend == "local":
+            # 本机用时间成本代替金额成本做护栏，数字是实测，见 references/api.md
+            eprint("[genimg] %s 超过 1024：本机实测 2048x2048 要 112.0–116.3 s（1024x1024 是 27.6 s），"
+                   "且会卸掉正在用的 LLM（下一个请求再付 66 s 重载 + 按上下文重读）。"
+                   "确认要出大图请加 --force-large" % job["size"])
+        else:
+            eprint("[genimg] %s 超过 1K 计费档，可能按 $0.15/张 计费；确认要出大图请加 --force-large"
+                   % job["size"])
+        sys.exit(EXIT_USAGE)
+
+
+def run_job(job, ctx, out_dir, stem):
+    """发一条作业并落盘。返回落盘路径列表；失败抛 SystemExit 或 Retryable。"""
+    quality = job["quality"] or "low"
+    body = build_body(job, job["size"], quality)
+    eprint("[genimg] POST %s size=%s n=%d slug=%s"
+           % (ctx["endpoint"], job["size"], job["n"], job["slug"] or "(取 prompt)"))
+    started = time.time()
+    status, text = request_json(ctx["endpoint"], ctx["key"], body, ctx["timeout"], ctx["retries"])
+    elapsed = time.time() - started
+
+    try:
+        data = json.loads(text)
+    except ValueError:
+        eprint("[genimg] 响应不是 JSON（HTTP %s）：" % status)
+        eprint(text[:2000])
+        sys.exit(EXIT_NO_IMAGE)
+
+    if job["backend"] == "local":
+        # 服务端自报的耗时与策略，用来核对本机代价是不是落在预期区间
+        diag = data.get("strata") or {}
+        if diag:
+            eprint("[genimg] strata: seconds=%s sampling_s=%s vae_decode_s=%s gpu_policy=%s "
+                   "steps=%s seed=%s" % (
+                       diag.get("seconds"), diag.get("sampling_s"), diag.get("vae_decode_s"),
+                       diag.get("gpu_policy"), diag.get("steps"), diag.get("seed")))
+        else:
+            eprint("[genimg] 响应里没有 strata 字段（服务端版本可能变了）")
+
+    items = data.get("data") or []
+    if not items:
+        eprint("[genimg] 响应里没有 data 字段：")
+        eprint(text[:2000])
+        sys.exit(EXIT_NO_IMAGE)
+
+    meta_path = out_dir / (stem + ".meta.json")
+    meta_path.write_text(
+        json.dumps(
+            {
+                "backend": job["backend"],
+                "requested": body,
+                "elapsed_seconds": round(elapsed, 1),
+                "response": data,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    saved = []
+    for index, item in enumerate(items, start=1):
+        dest = out_dir / ("%s_%d.png" % (stem, index) if len(items) > 1 else stem + ".png")
+        url = item.get("url")
+        b64 = item.get("b64_json")
+        if b64:
+            dest.write_bytes(base64.b64decode(b64))
+        elif url:
+            download(url, dest, ctx["billed_note"])
+        else:
+            eprint("[genimg] 第 %d 项既没有 url 也没有 b64_json，跳过" % index)
+            continue
+        saved.append(dest)
+
+    if not saved:
+        eprint("[genimg] 没有任何图片落盘，响应存到 %s" % meta_path)
+        sys.exit(EXIT_NO_IMAGE)
+
+    eprint("[genimg] 完成：%d 张，%.1fs，meta: %s" % (len(saved), elapsed, meta_path))
+    return [{"file": str(dest), "seconds": round(elapsed, 1), "index": index}
+            for index, dest in enumerate(saved, start=1)]
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="生成图片并保存到本地（默认本机 Strata 的 Qwen-Image-2.1-Turbo，--backend gateway 走 fastaitoken 的 gpt-image-2）",
+        epilog="一批的用法：--jobs jobs.json（JSON 数组 / JSONL / 每行「slug\\tprompt」），"
+               "补跑加 --skip-done；切好的小图用同目录的 slice.py 从整张网格图里切。",
     )
-    parser.add_argument("--prompt", required=True, help="图片描述（建议英文为主）")
+    parser.add_argument("--prompt", help="图片描述（建议英文为主）；与 --jobs 二选一")
+    parser.add_argument("--jobs", help="一批作业：JSON 数组、JSONL，或每行「slug<TAB>prompt」的文本")
+    parser.add_argument("--skip-done", action="store_true",
+                        help="跳过 --out 目录里已出过的作业（按 prompt+size+n+seed 比对 .meta.json）")
+    parser.add_argument("--retries", type=int, default=DEFAULT_RETRIES,
+                        help="断连 / 上游 5xx 的重试次数，默认 %d（不产出图所以不重复计费）"
+                             % DEFAULT_RETRIES)
     parser.add_argument("--size", default=DEFAULT_SIZE, help="宽x高，默认 1024x1024")
     parser.add_argument(
         "--quality", choices=QUALITY_CHOICES, default=None,
@@ -260,170 +509,131 @@ def main():
     )
     args = parser.parse_args()
 
+    if bool(args.prompt) == bool(args.jobs):
+        eprint("[genimg] --prompt 与 --jobs 二选一（单张用 --prompt，一批用 --jobs）")
+        sys.exit(EXIT_USAGE)
+    if args.retries < 0:
+        eprint("[genimg] --retries 不能为负")
+        sys.exit(EXIT_USAGE)
+
     skill_dir = Path(__file__).resolve().parent.parent
     env_map = read_env_file(skill_dir)
 
-    # 后端：命令行 > .env 的 GENIMG_BACKEND > 默认本机
+    default_backend, backend_source = resolve_backend(args.backend, env_map)
     if args.backend is None:
-        env_backend, backend_source = lookup_setting(BACKEND_NAMES, env_map)
-        env_backend = (env_backend or "").strip().lower()
-        if env_backend and env_backend not in BACKEND_CHOICES:
-            eprint("[genimg] GENIMG_BACKEND 只认 %s，收到 %r"
-                   % (" / ".join(BACKEND_CHOICES), env_backend))
-            sys.exit(EXIT_USAGE)
-        args.backend = env_backend or DEFAULT_BACKEND
-        backend_source = backend_source or "默认"
-        eprint("[genimg] 后端：%s（来自 %s；要 gpt-image-2 加 --backend gateway）"
-               % ("本机 Strata" if args.backend == "local" else "fastaitoken 网关 gpt-image-2",
-                  backend_source))
+        eprint("[genimg] 后端：%s（来自 %s；只有明确要 gpt-image-2 才加 --backend gateway）"
+               % ("本机 Strata qwen-image-2.1" if default_backend == "local"
+                  else "fastaitoken 网关 gpt-image-2", backend_source))
 
-    if args.backend == "local":
-        key, key_source = lookup_setting(LOCAL_KEY_NAMES, env_map)
-        if not key:
-            eprint("[genimg] 未找到本机 api key：在 %s 写 STRATA_LOCAL_KEY=..."
-                   "（取自远端 /data/Strata/strata-iq3_s.json 的 api_key）" % (skill_dir / ".env"))
+    # 组装作业列表：--jobs 的每条继承命令行默认值
+    raw_jobs = read_jobs(args.jobs) if args.jobs else [{}]
+    jobs = []
+    for raw in raw_jobs:
+        job = {
+            "slug": raw.get("slug") or (args.slug or ""),
+            "prompt": raw.get("prompt") or args.prompt,
+            "size": raw.get("size") or args.size,
+            "n": int(raw.get("n", args.n)),
+            "seed": raw["seed"] if raw.get("seed") is not None else args.seed,
+            "quality": raw.get("quality") or args.quality,
+            "backend": (raw.get("backend") or default_backend),
+        }
+        if not job["prompt"]:
+            eprint("[genimg] 有一条作业没有 prompt")
             sys.exit(EXIT_USAGE)
-        base_url, _ = lookup_setting(LOCAL_URL_NAMES, env_map)
-        base_url = (base_url or DEFAULT_LOCAL_URL).rstrip("/")
-        timeout = LOCAL_TIMEOUT
-        billed_note = "本机端点不收费，但作业已经跑完"
-    else:
-        key, key_source = lookup_setting(GATEWAY_KEY_NAMES, env_map)
-        if not key:
-            eprint("[genimg] 未找到 API key：在 %s 写 GENIMG_API_KEY=...（或 FASTAITOKEN_IMAGE_KEY=...）"
-                   % (skill_dir / ".env"))
+        if job["backend"] not in BACKEND_CHOICES:
+            eprint("[genimg] backend 只认 %s，收到 %r" % (" / ".join(BACKEND_CHOICES), job["backend"]))
             sys.exit(EXIT_USAGE)
-        base_url, timeout = API_URL, TIMEOUT
-        billed_note = "接口已计费"
+        if job["backend"] == "local" and args.quality is not None:
+            eprint("[genimg] 本机后端固定 8 步（Turbo sigmas），没有 quality 阶梯，quality 已忽略")
+        check_job(job, args.force_large)
+        jobs.append(job)
 
-    quality = args.quality or "low"
-    if args.backend == "local" and args.quality is not None:
-        eprint("[genimg] 本机后端固定 8 步（Turbo sigmas），没有 quality 阶梯，--quality 已忽略")
-
-    if args.seed is not None:
-        if args.backend != "local":
-            eprint("[genimg] --seed 只在本机后端实测过（同 seed 逐字节可复现）；"
-                   "网关的 seed 行为未测，要用请加 --backend local")
-            sys.exit(EXIT_USAGE)
-        if args.seed < 0:
-            eprint("[genimg] --seed 需要非负整数，收到 %d" % args.seed)
-            sys.exit(EXIT_USAGE)
-
-    if args.backend == "local":
-        if args.n < 1 or args.n > LOCAL_N_MAX:
-            # 报错文案照抄服务端实测原文：n: a whole number from 1 to 4
-            eprint("[genimg] n: a whole number from 1 to %d（收到 %d）" % (LOCAL_N_MAX, args.n))
-            sys.exit(EXIT_USAGE)
-    elif args.n < 1:
-        eprint("[genimg] --n 至少为 1")
-        sys.exit(EXIT_USAGE)
-
-    size = parse_size(args.size, args.backend)
-    if max(int(size.split("x")[0]), int(size.split("x")[1])) > LARGE_LIMIT and not args.force_large:
-        if args.backend == "local":
-            # 本机用时间成本代替金额成本做护栏，数字是实测，见 references/api.md
-            eprint("[genimg] %s 超过 1024：本机实测 2048x2048 要 112.0–116.3 s（1024x1024 是 27.6 s），"
-                   "且会卸掉正在用的 LLM（下一个请求再付 66 s 重载 + 按上下文重读）。"
-                   "确认要出大图请加 --force-large" % size)
-        else:
-            eprint("[genimg] %s 超过 1K 计费档，可能按 $0.15/张 计费；"
-                   "确认要出大图请加 --force-large" % size)
-        sys.exit(EXIT_USAGE)
+    # key/endpoint 按后端取；混合批次两边都要能取到
+    ctxs = {}
+    for job in jobs:
+        backend = job["backend"]
+        if backend not in ctxs:
+            key, key_source, endpoint, base_url, timeout, billed_note = backend_endpoint(
+                backend, env_map, skill_dir)
+            ctxs[backend] = {"key": key, "key_source": key_source, "endpoint": endpoint,
+                             "base_url": base_url,
+                             "timeout": timeout, "billed_note": billed_note,
+                             "retries": args.retries}
+    ctx = ctxs[jobs[0]["backend"]]
 
     if args.check:
-        print("BACKEND=%s" % args.backend)
-        print("KEY_SOURCE=%s" % key_source)
-        print("KEY_LEN=%d" % len(key))
-        if args.backend == "local":
-            print("URL=%s SIZE=%s N=%d SEED=%s" % (base_url, size, args.n, args.seed))
-            get_health(base_url, key)
-            eprint("[genimg] 配置与连通性检查通过，未请求生图接口（不占 GPU）")
-        else:
-            print("SIZE=%s QUALITY=%s" % (size, quality))
-            eprint("[genimg] 配置检查通过，未请求接口")
+        seen = set()
+        for job in jobs:
+            backend = job["backend"]
+            if backend in seen:
+                continue
+            seen.add(backend)
+            print("BACKEND=%s" % backend)
+            print("KEY_SOURCE=%s" % ctxs[backend]["key_source"])
+            print("KEY_LEN=%d" % len(ctxs[backend]["key"]))
+            if backend == "local":
+                print("URL=%s SIZE=%s N=%d SEED=%s"
+                      % (ctxs[backend]["endpoint"], job["size"], job["n"], job["seed"]))
+                get_health(ctxs[backend]["base_url"], ctxs[backend]["key"])
+            else:
+                print("SIZE=%s QUALITY=%s" % (job["size"], job["quality"] or "low"))
+        eprint("[genimg] 配置与参数检查通过（%d 条），未请求生图接口（不占 GPU、不花钱）" % len(jobs))
         return EXIT_OK
-
-    body = build_body(args, size, quality)
 
     out_dir = Path(args.out).expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
-    stem = "%s_%s" % (stamp, sanitize_slug(args.slug or args.prompt))
 
-    if args.backend == "local":
+    if "local" in ctxs:
         warn_local_cost()
-        eprint("[genimg] key 来源：%s" % key_source)
-        eprint("[genimg] POST %s/v1/images/generations size=%s n=%d（超时 %d s，中途断开服务端会取消作业）"
-               % (base_url, size, args.n, timeout))
-        endpoint = base_url + "/v1/images/generations"
-    else:
-        eprint("[genimg] key 来源：%s" % key_source)
-        eprint("[genimg] POST %s size=%s quality=%s n=%d" % (API_URL, size, quality, args.n))
-        endpoint = API_URL
-    started = time.time()
-    status, text = request_json(endpoint, key, body, timeout)
-    elapsed = time.time() - started
 
-    try:
-        data = json.loads(text)
-    except ValueError:
-        eprint("[genimg] 响应不是 JSON（HTTP %s）：" % status)
-        eprint(text[:2000])
-        sys.exit(EXIT_NO_IMAGE)
-
-    if args.backend == "local":
-        # 服务端自报的耗时与策略，用来核对本机代价是不是落在预期区间
-        diag = data.get("strata") or {}
-        if diag:
-            eprint("[genimg] strata: seconds=%s sampling_s=%s vae_decode_s=%s gpu_policy=%s "
-                   "steps=%s seed=%s" % (
-                       diag.get("seconds"), diag.get("sampling_s"), diag.get("vae_decode_s"),
-                       diag.get("gpu_policy"), diag.get("steps"), diag.get("seed")))
-        else:
-            eprint("[genimg] 响应里没有 strata 字段（服务端版本可能变了）")
-
-    items = data.get("data") or []
-    if not items:
-        eprint("[genimg] 响应里没有 data 字段：")
-        eprint(text[:2000])
-        sys.exit(EXIT_NO_IMAGE)
-
-    meta_path = out_dir / (stem + ".meta.json")
-    meta_path.write_text(
-        json.dumps(
-            {
-                "backend": args.backend,
-                "requested": body,
-                "elapsed_seconds": round(elapsed, 1),
-                "response": data,
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-    saved = []
-    for index, item in enumerate(items, start=1):
-        dest = out_dir / ("%s_%d.png" % (stem, index) if len(items) > 1 else stem + ".png")
-        url = item.get("url")
-        b64 = item.get("b64_json")
-        if b64:
-            dest.write_bytes(base64.b64decode(b64))
-        elif url:
-            download(url, dest, billed_note)
-        else:
-            eprint("[genimg] 第 %d 项既没有 url 也没有 b64_json，跳过" % index)
+    manifest = []
+    failed = []
+    for number, job in enumerate(jobs, start=1):
+        ctx = ctxs[job["backend"]]
+        if args.skip_done:
+            hit = already_done(out_dir, job)
+            if hit:
+                eprint("[genimg] 跳过（%d/%d）：同样的 prompt+size+n+seed 已出过 → %s"
+                       % (number, len(jobs), hit))
+                manifest.append({"slug": job["slug"], "file": str(out_dir / hit),
+                                 "skipped": True})
+                continue
+        stem = "%s_%02d_%s" % (stamp, number, sanitize_slug(job["slug"] or job["prompt"])) \
+            if len(jobs) > 1 else "%s_%s" % (stamp, sanitize_slug(job["slug"] or job["prompt"]))
+        eprint("[genimg] (%d/%d) slug=%s size=%s backend=%s"
+               % (number, len(jobs), job["slug"] or "(取 prompt)", job["size"], job["backend"]))
+        try:
+            rows = run_job(job, ctx, out_dir, stem)
+        except (SystemExit, Retryable) as exc:
+            if isinstance(exc, Retryable):
+                eprint("[genimg] 第 %d 条最终失败：%s" % (number, exc.why))
+            else:
+                eprint("[genimg] 第 %d 条失败（退出码 %s）" % (number, exc.code))
+            failed.append({"number": number, "slug": job["slug"]})
+            if len(jobs) == 1:
+                raise
             continue
-        saved.append(dest)
+        manifest.append({"slug": job["slug"], "size": job["size"], "backend": job["backend"],
+                         "seed": job["seed"], "files": [r["file"] for r in rows]})
 
-    if not saved:
-        eprint("[genimg] 没有任何图片落盘，响应存到 %s" % meta_path)
-        sys.exit(EXIT_NO_IMAGE)
+    for entry in manifest:
+        for path in ([entry["file"]] if "file" in entry else entry.get("files", [])):
+            print("LOCAL=%s" % path)
 
-    for dest in saved:
-        print("LOCAL=%s" % dest)
-    eprint("[genimg] 完成：%d 张，%.1fs，meta: %s" % (len(saved), elapsed, meta_path))
+    if len(jobs) > 1:
+        manifest_path = out_dir / ("batch-%s.manifest.json" % stamp)
+        manifest_path.write_text(json.dumps(
+            {"jobs": len(jobs), "failed": failed, "entries": manifest},
+            ensure_ascii=False, indent=2), encoding="utf-8")
+        print("MANIFEST=%s" % manifest_path)
+
+    if failed:
+        eprint("[genimg] 这批 %d 条里 %d 条没成：%s。"
+               "补跑加 --skip-done（已出过的会跳过，不重复付费）"
+               % (len(jobs), len(failed), ", ".join(str(f["slug"] or f["number"]) for f in failed)))
+        return EXIT_PARTIAL
     return EXIT_OK
 
 
