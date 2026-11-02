@@ -79,8 +79,12 @@ Content-Type: application/json
   这种 500 不产出图，重试不重复计费，但仍应先确认再试。
 - **偶发断连（实测 2026-11-01 16:4x）**：`[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol`。
   同一请求连断 4 次出现过，**重试（脚本里 3 次）就能过**，不是参数问题也不是鉴权问题。
-  因为按张计费，**补跑要跳过已经出过图的项**（`s19_concept_ui.py --only … --skip-done`），
-  判断依据是同名 `.meta.json` 里记的 backend + job key。取图那一步（`url` 下载）也会断，要单独重试。
+  因为按张计费，**补跑要跳过已经出过图的项**：`genimg.py --skip-done` 按 `--out` 目录里
+  同名 `.meta.json` 记的 backend + prompt + size + n + seed 比对，匹配就跳过（本机同身份逐字节可复现）。
+  取图那一步（`url` 下载）也会断，要单独重试。
+- **脚本对这两类失败自动重试**：`--retries`（默认 2 = 最多 3 次尝试），只针对断连 / 超时 / HTTP ≥500。
+  400 这类参数错不重试（那是我的请求写错了）。批量里某条最终失败不会中断整批，
+  末尾摘要列出没成的项并退出码 5，成功的照常落盘。
 
 ## 未验证
 
