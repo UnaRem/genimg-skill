@@ -1,7 +1,7 @@
 # 接口契约 · 网关（fastaitoken，实测于 2026-10-28）
 
 **这文件只有接口**：请求、参数支持、响应字段、计费、耗时、边界。
-**各题材的写法与参考 prompt 全文在 `prompt-recipes.md`；「这条需求该不该出图」在 `../SKILL.md` §0。**
+**各题材的写法与参考 prompt 全文在 [prompt-recipes.md](prompt-recipes.md)；「这条需求让谁做、什么时候换网关」在 [../SKILL.md](../SKILL.md)。**
 
 下方另有一节「本机 Strata 后端（实测于 2026-10-30 / 10-31）」，那节才是默认后端。
 

@@ -36,7 +36,7 @@
 - **`temperature=0`**，每个界面全新上下文，别接着上一轮的对话往下写。
 - **耗时**：单题 84–280 s（thinking 是成本主体），五题整批 ~14 分钟。**要快就先做一屏。**
 - 一个完整产品**按路由拆开发**：一次调用做一屏/一路由，共用 tokens 单独给一遍（实测多页拆发比
-  一整坨长规格更可控）。做完全站再补资源图（走 `genimg.py`，见 SKILL.md §0/§2）。
+  一整坨长规格更可控）。做完全站再补资源图（走 `genimg.py`，见 SKILL.md「它在做哪种活」与「尺寸」两节）。
 
 ## StyleKit 那一步怎么用
 
@@ -64,6 +64,6 @@ python -m http.server 5199 --bind 127.0.0.1
 - **文案命中用 `document.textContent`（空白归一）+ input placeholder 自动判定**，
   但条件渲染要按交互采样：tab 浮层、打字机、`sm:hidden` 菜单在某一瞬间取不到，据此判负会误判。
 - **页面上出现占位符或规格残渣 = 判负**：遍历可见文本节点，命中 `TODO` / `Lorem ipsum` /
-  `font-family:` / `@import` / `px-` 就算垃圾节点（这条是用来抓「照着图实现」的病的，见 §0）。
+  `font-family:` / `@import` / `px-` 就算垃圾节点（这条抓的是「照着图实现」的病，见 SKILL.md「它在做哪种活」）。
 - 字体 CDN（Google Fonts / onlinewebfonts）在本机浏览器不可达，回退不算判负；
   CloudFront 视频与 framerusercontent 图片可达。
